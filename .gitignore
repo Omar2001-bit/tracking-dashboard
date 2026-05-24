@@ -1,0 +1,13 @@
+.DS_Store
+Thumbs.db
+node_modules/
+.vercel/
+dist/
+build/
+.env
+.env.*
+*.log
+__pycache__/
+*.pyc
+edge-profile/
+edge-profile-2/

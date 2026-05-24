@@ -1,0 +1,19 @@
+{
+  "name": "tharaa-audit-fixing-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Optimizers-branded static dashboard for fixing and tracking Tharaa audit points.",
+  "scripts": {
+    "build": "node -e \"console.log('Static dashboard ready: index.html')\"",
+    "start": "node scripts/serve.mjs",
+    "dev": "node scripts/serve.mjs"
+  },
+  "keywords": [
+    "tharaa",
+    "audit",
+    "dashboard",
+    "optimizers",
+    "vercel"
+  ],
+  "license": "UNLICENSED"
+}
