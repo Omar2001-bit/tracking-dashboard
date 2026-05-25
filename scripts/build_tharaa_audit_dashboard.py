@@ -521,6 +521,7 @@ def build_html(data: list[dict[str, str]]) -> str:
           <div class="kpi"><strong id="manualCount">0</strong><span>Manual review</span></div>
           <div class="kpi"><strong id="fixedCount">0</strong><span>Marked fixed</span></div>
           <div class="kpi"><strong id="notFixedCount">0</strong><span>Marked not fixed</span></div>
+          <div class="kpi"><strong id="cloudStatus">Local</strong><span>Firestore sync</span></div>
         </div>
         <div class="filters">
           <input id="search" class="search" type="search" placeholder="Search audit points, IDs, fixes, docs">
@@ -557,10 +558,33 @@ def build_html(data: list[dict[str, str]]) -> str:
   </footer>
 
   <script type="application/json" id="audit-data">{payload}</script>
-  <script>
+  <script type="module">
+    import {{ initializeApp }} from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
+    import {{
+      collection,
+      doc,
+      getDocs,
+      getFirestore,
+      serverTimestamp,
+      setDoc,
+    }} from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+
+    const firebaseConfig = {{
+      apiKey: "AIzaSyCFF5gMTyp3ibY1ufEQfVbW1AUiDTH7ZQY",
+      authDomain: "dashboard-fb7e9.firebaseapp.com",
+      projectId: "dashboard-fb7e9",
+      storageBucket: "dashboard-fb7e9.firebasestorage.app",
+      messagingSenderId: "577559586975",
+      appId: "1:577559586975:web:616d8e3699a91210d89aaa",
+    }};
+
     const auditData = JSON.parse(document.getElementById("audit-data").textContent);
     const toolCounts = {tool_counts};
     const storeKey = "tharaa-audit-command-center-progress-v1";
+    const firebaseApp = initializeApp(firebaseConfig);
+    const db = getFirestore(firebaseApp);
+    const progressCollection = collection(db, "dashboards", "tharaa-audit-fixing-dashboard", "progress");
+    const cloudSaveTimers = new Map();
     const state = {{
       tool: "All",
       status: "all",
@@ -581,6 +605,7 @@ def build_html(data: list[dict[str, str]]) -> str:
       manualCount: document.getElementById("manualCount"),
       fixedCount: document.getElementById("fixedCount"),
       notFixedCount: document.getElementById("notFixedCount"),
+      cloudStatus: document.getElementById("cloudStatus"),
       resultLabel: document.getElementById("resultLabel"),
       clearFilters: document.getElementById("clearFilters"),
       reviewFilter: document.getElementById("reviewFilter"),
@@ -595,8 +620,17 @@ def build_html(data: list[dict[str, str]]) -> str:
       }}
     }}
 
-    function saveProgress() {{
+    function setCloudStatus(message) {{
+      els.cloudStatus.textContent = message;
+    }}
+
+    function saveLocalProgress() {{
       localStorage.setItem(storeKey, JSON.stringify(state.progress));
+    }}
+
+    function saveProgress(id) {{
+      saveLocalProgress();
+      if (id) queueCloudSave(id);
     }}
 
     function progressFor(id) {{
@@ -605,14 +639,69 @@ def build_html(data: list[dict[str, str]]) -> str:
 
     function setProgress(id, status) {{
       state.progress[id] = {{ ...progressFor(id), status, updatedAt: new Date().toISOString() }};
-      saveProgress();
+      saveProgress(id);
       render();
     }}
 
     function setNote(id, note) {{
       state.progress[id] = {{ ...progressFor(id), note, updatedAt: new Date().toISOString() }};
-      saveProgress();
+      saveProgress(id);
       renderCounts(filteredRows().length);
+    }}
+
+    function progressPayload(id) {{
+      const row = auditData.find(item => item.id === id) || {{}};
+      const progress = progressFor(id);
+      return {{
+        pointId: id,
+        row: row.row || "",
+        tool: row.tool || "",
+        issueId: row.issueId || "",
+        auditStatus: row.status || "",
+        issue: row.issue || "",
+        manualReview: Boolean(row.manualReview),
+        status: progress.status || "unreviewed",
+        fixed: progress.status === "fixed",
+        note: progress.note || "",
+        updatedAtIso: progress.updatedAt || new Date().toISOString(),
+        updatedAt: serverTimestamp(),
+      }};
+    }}
+
+    function queueCloudSave(id) {{
+      clearTimeout(cloudSaveTimers.get(id));
+      cloudSaveTimers.set(id, setTimeout(() => pushProgressToFirestore(id), 450));
+    }}
+
+    async function pushProgressToFirestore(id) {{
+      try {{
+        await setDoc(doc(progressCollection, id), progressPayload(id), {{ merge: true }});
+        setCloudStatus("Saved");
+      }} catch (error) {{
+        console.error("Firestore save failed", error);
+        setCloudStatus("Blocked");
+      }}
+    }}
+
+    async function loadCloudProgress() {{
+      setCloudStatus("Loading");
+      try {{
+        const snapshot = await getDocs(progressCollection);
+        snapshot.forEach(item => {{
+          const data = item.data();
+          state.progress[item.id] = {{
+            status: data.status || "unreviewed",
+            note: data.note || "",
+            updatedAt: data.updatedAtIso || "",
+          }};
+        }});
+        saveLocalProgress();
+        setCloudStatus(`${{snapshot.size}} loaded`);
+        render();
+      }} catch (error) {{
+        console.error("Firestore load failed", error);
+        setCloudStatus("Blocked");
+      }}
     }}
 
     function escapeHtml(value) {{
@@ -778,7 +867,7 @@ def build_html(data: list[dict[str, str]]) -> str:
             <h2>My Notes</h2>
             <div class="content">
               <textarea class="note-box" id="noteBox" placeholder="Add evidence links, screenshot names, or what changed...">${{escapeHtml(progress.note || "")}}</textarea>
-              <div class="small">Saved automatically in this browser.</div>
+              <div class="small">Saved automatically to Firestore, with browser backup.</div>
             </div>
           </div>
         </div>`;
@@ -830,6 +919,7 @@ def build_html(data: list[dict[str, str]]) -> str:
     }});
 
     render();
+    loadCloudProgress();
   </script>
 </body>
 </html>

@@ -37,7 +37,30 @@ npm run dev
 
 Then open `http://localhost:3000`.
 
-The dashboard is static and stores fixed/not-fixed status and notes in the browser's local storage.
+The dashboard is static and stores fixed/not-fixed status and notes in Firebase Firestore, with browser local storage as a backup.
+
+## Firebase Firestore Setup
+
+The dashboard writes progress documents here:
+
+```text
+dashboards/tharaa-audit-fixing-dashboard/progress/{auditPointId}
+```
+
+For a quick first test, create Firestore Database in Firebase, then publish this temporary rule:
+
+```js
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /dashboards/tharaa-audit-fixing-dashboard/progress/{pointId} {
+      allow read, write: if true;
+    }
+  }
+}
+```
+
+After you confirm data is flowing, replace this with authenticated rules before sharing the public dashboard link.
 
 ## Updating The Dashboard
 
