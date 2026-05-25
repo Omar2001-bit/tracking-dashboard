@@ -1,0 +1,20 @@
+[
+  {
+    "id": "Client-Audit-GA4-GA4-2-0-CONF-CONV-001",
+    "status": "Action Needed",
+    "issue": "[GA4 | CONF-CONV-001] `page_view` is marked as a GA4 key event.",
+    "summary": "Explanation: GA4 is counting a normal page load as a key event. A page view only shows that someone opened a page; it is not a purchase, lead, checkout step, or other business outcome. Why it matters: It can distort con...",
+    "detail": "Explanation:\nGA4 is counting a normal page load as a key event. A page view only shows that someone opened a page; it is not a purchase, lead, checkout step, or other business outcome.\n\nWhy it matters:\nIt can distort conversion counts, ROAS, CPA, revenue reporting, and bidding decisions.\n\nRecommended action:\nVerify the event still appears as a normal event, but key-event status is OFF unless the business has intentionally defined it as a true conversion.\n\nVerification standard:\n1. Yes — confirm ",
+    "fix": "Verify the event still appears as a normal event, but key-event status is OFF unless the business has intentionally defined it as a true conversion.",
+    "verify": "1. Yes — confirm in GA4 Admin UI → Admin → Key Events that `page_view` key event toggle is on.\n\nDone means the evidence now supports this target: `page_view` should not be a key event. Only intentiona"
+  },
+  {
+    "id": "Client-Audit-GA4-GA4-3-0-CONF-CONV-002",
+    "status": "Action Needed",
+    "issue": "[GA4 | CONF-CONV-002] `session_start` is marked as a GA4 key event.",
+    "summary": "Explanation: GA4 is counting the automatic session_start event as a key event. This only means a visit began, so it should not be used as a success metric. Why it matters: It can distort conversion counts, ROAS, CPA, re...",
+    "detail": "Explanation:\nGA4 is counting the automatic session_start event as a key event. This only means a visit began, so it should not be used as a success metric.\n\nWhy it matters:\nIt can distort conversion counts, ROAS, CPA, revenue reporting, and bidding decisions.\n\nRecommended action:\nVerify the event still appears as a normal event, but key-event status is OFF unless the business has intentionally defined it as a true conversion.\n\nVerification standard:\n1. Yes — confirm in GA4 Admin UI that `session",
+    "fix": "Verify the event still appears as a normal event, but key-event status is OFF unless the business has intentionally defined it as a true conversion.",
+    "verify": "1. Yes — confirm in GA4 Admin UI that `session_start` key event toggle is on.\n\nDone means the evidence now supports this target: `session_start` should not be a key event. It is an automatically colle"
+  }
+]
