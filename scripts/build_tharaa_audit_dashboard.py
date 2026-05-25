@@ -172,9 +172,27 @@ def plain_language(text: str) -> str:
     for pattern, replacement in BUSINESS_GLOSSARY:
         text = re.sub(pattern, replacement, text, flags=re.I)
     text = re.sub(r"\ba analytics\b", "an analytics", text)
+    text = re.sub(r"\ba important\b", "an important", text)
     text = re.sub(r"\ban analytics important business action\b", "an important business action in analytics", text)
     text = re.sub(r"\bmarked as an important business action in analytics\b", "being counted as a business success action", text)
     text = re.sub(r"\bis an important business action in analytics\b", "is counted as a business success action", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def business_explanation(text: str) -> str:
+    text = plain_language(text)
+    text = re.sub(
+        r"(?is)\n\s*(Recommended action|Verification standard|How to verify|How to fix):.*$",
+        "",
+        text,
+    )
+    text = re.sub(r"(?im)^\s*(Explanation|Why it matters|Business impact|Impact):\s*", "", text)
+    text = re.sub(
+        r"(?is)This row describes a real configuration or data-quality problem that needs to be reviewed before it is marked fixed\.?",
+        "",
+        text,
+    )
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
 
@@ -184,21 +202,15 @@ def short_business_issue(issue: str, tool: str) -> str:
     text = re.sub(r"\s+", " ", text)
     if len(text) > 180:
         text = text[:177].rstrip() + "..."
-    return f"{tool}: {text}" if tool and not text.lower().startswith(tool.lower()) else text
+    return text
 
 
 def business_detail(issue: str, detail: str, tool: str, review_status: str) -> str:
     issue_text = plain_language(strip_issue_prefix(issue))
-    detail_text = plain_language(detail or issue)
-    status_text = plain_language(review_status)
-    parts = [
-        f"What this means:\n{issue_text}",
-        "Why the business should care:\nThis can affect the quality of decisions, reporting, marketing spend, customer experience, search visibility, or store operations. If the setup is wrong, the team may trust numbers or settings that do not reflect what customers are really doing.",
-        f"Current reading:\n{detail_text}",
-    ]
-    if status_text:
-        parts.append(f"How this item is routed:\n{status_text}")
-    return "\n\n".join(parts)
+    detail_text = business_explanation(detail or issue)
+    if detail_text and detail_text.lower() != issue_text.lower():
+        return f"{issue_text}\n\n{detail_text}"
+    return issue_text
 
 
 def business_fix(fix: str, tool: str) -> str:
@@ -659,6 +671,7 @@ def build_html(data: list[dict[str, str]]) -> str:
     }}
     .action-btn.fixed {{ border-color: #98d4b5; color: var(--green); background: var(--green-soft); }}
     .action-btn.notfixed {{ border-color: #f2b8b5; color: var(--red); background: var(--red-soft); }}
+    .action-btn.danger {{ border-color: #f2b8b5; color: var(--red); background: #fff7f6; }}
     .action-btn.ghost {{ color: var(--muted); }}
     .action-btn.manual-filter {{
       border-color: #f0d18c;
@@ -837,6 +850,7 @@ def build_html(data: list[dict[str, str]]) -> str:
     const toolCounts = {tool_counts};
     const sourceCounts = {source_counts};
     const storeKey = "tharaa-audit-command-center-progress-v1";
+    const deletedStoreKey = "tharaa-audit-command-center-deleted-v1";
     const firebaseApp = initializeApp(firebaseConfig);
     const db = getFirestore(firebaseApp);
     const progressCollection = collection(db, "dashboards", "tharaa-audit-fixing-dashboard", "progress");
@@ -850,6 +864,7 @@ def build_html(data: list[dict[str, str]]) -> str:
       query: "",
       selectedId: auditData[0]?.id || null,
       progress: loadProgress(),
+      deletedIds: new Set(loadDeletedIds()),
     }};
 
     const els = {{
@@ -895,6 +910,22 @@ def build_html(data: list[dict[str, str]]) -> str:
       }}
     }}
 
+    function loadDeletedIds() {{
+      try {{
+        return JSON.parse(localStorage.getItem(deletedStoreKey) || "[]");
+      }} catch {{
+        return [];
+      }}
+    }}
+
+    function saveDeletedIds() {{
+      localStorage.setItem(deletedStoreKey, JSON.stringify([...state.deletedIds]));
+    }}
+
+    function activeRows() {{
+      return auditData.filter(row => !state.deletedIds.has(row.id));
+    }}
+
     function setCloudStatus(message) {{
       els.cloudStatus.textContent = message;
     }}
@@ -924,6 +955,24 @@ def build_html(data: list[dict[str, str]]) -> str:
       renderCounts(filteredRows().length);
     }}
 
+    function deletePoint(id) {{
+      const row = auditData.find(item => item.id === id);
+      if (!row) return;
+      const confirmed = window.confirm("Delete this audit point from your dashboard? It will be removed from lists and totals for everyone using the synced dashboard.");
+      if (!confirmed) return;
+      state.deletedIds.add(id);
+      state.progress[id] = {{
+        ...progressFor(id),
+        deleted: true,
+        deletedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }};
+      saveDeletedIds();
+      saveProgress(id);
+      state.selectedId = activeRows()[0]?.id || null;
+      render();
+    }}
+
     function progressPayload(id) {{
       const row = auditData.find(item => item.id === id) || {{}};
       const progress = progressFor(id);
@@ -940,6 +989,8 @@ def build_html(data: list[dict[str, str]]) -> str:
         status: progress.status || "unreviewed",
         fixed: progress.status === "fixed",
         note: progress.note || "",
+        deleted: state.deletedIds.has(id) || Boolean(progress.deleted),
+        deletedAt: progress.deletedAt || "",
         updatedAtIso: progress.updatedAt || new Date().toISOString(),
         updatedAt: serverTimestamp(),
       }};
@@ -969,9 +1020,13 @@ def build_html(data: list[dict[str, str]]) -> str:
           state.progress[item.id] = {{
             status: data.status || "unreviewed",
             note: data.note || "",
+            deleted: Boolean(data.deleted),
+            deletedAt: data.deletedAt || "",
             updatedAt: data.updatedAtIso || "",
           }};
+          if (data.deleted) state.deletedIds.add(item.id);
         }});
+        saveDeletedIds();
         saveLocalProgress();
         setCloudStatus(`${{snapshot.size}} loaded`);
         render();
@@ -1030,7 +1085,7 @@ def build_html(data: list[dict[str, str]]) -> str:
 
     function filteredRows() {{
       const q = state.query.trim().toLowerCase();
-      return auditData.filter(row => {{
+      return activeRows().filter(row => {{
         const progress = progressFor(row.id);
         if (state.tool !== "All" && row.tool !== state.tool) return false;
         if (state.sourceTab !== "All" && row.sourceTab !== state.sourceTab) return false;
@@ -1058,13 +1113,18 @@ def build_html(data: list[dict[str, str]]) -> str:
     }}
 
     function renderToolbar() {{
+      const activeToolCounts = activeRows().reduce((counts, row) => {{
+        counts[row.tool] = (counts[row.tool] || 0) + 1;
+        return counts;
+      }}, {{}});
       const tools = ["All", ...Object.keys(toolCounts)];
       els.toolbar.innerHTML = "";
       for (const tool of tools) {{
         const button = document.createElement("button");
         button.type = "button";
         button.className = `tool-btn${{state.tool === tool ? " active" : ""}}`;
-        button.textContent = tool === "All" ? `All (${{auditData.length.toLocaleString()}})` : `${{tool}} (${{toolCounts[tool].toLocaleString()}})`;
+        const count = tool === "All" ? activeRows().length : (activeToolCounts[tool] || 0);
+        button.textContent = tool === "All" ? `All (${{count.toLocaleString()}})` : `${{tool}} (${{count.toLocaleString()}})`;
         button.addEventListener("click", () => {{
           state.tool = tool;
           render();
@@ -1077,23 +1137,24 @@ def build_html(data: list[dict[str, str]]) -> str:
       let fixed = 0;
       let notFixed = 0;
       let manual = 0;
-      for (const row of auditData) {{
+      const rows = activeRows();
+      for (const row of rows) {{
         const status = progressFor(row.id).status;
         if (status === "fixed") fixed += 1;
         if (status === "notfixed") notFixed += 1;
         if (row.manualReview) manual += 1;
       }}
-      els.totalCount.textContent = auditData.length.toLocaleString();
+      els.totalCount.textContent = rows.length.toLocaleString();
       els.visibleCount.textContent = visibleTotal.toLocaleString();
       els.manualCount.textContent = manual.toLocaleString();
       els.fixedCount.textContent = fixed.toLocaleString();
       els.notFixedCount.textContent = notFixed.toLocaleString();
-      const completion = auditData.length ? (fixed / auditData.length) * 100 : 0;
+      const completion = rows.length ? (fixed / rows.length) * 100 : 0;
       const completionText = `${{completion.toFixed(1).replace(".0", "")}}%`;
       els.completionPercent.textContent = completionText;
       els.completionFill.style.width = `${{Math.min(100, completion).toFixed(2)}}%`;
       els.completionFill.parentElement.setAttribute("aria-valuenow", completion.toFixed(1));
-      els.completionMeta.textContent = `${{fixed.toLocaleString()}} of ${{auditData.length.toLocaleString()}} tasks fixed`;
+      els.completionMeta.textContent = `${{fixed.toLocaleString()}} of ${{rows.length.toLocaleString()}} tasks fixed`;
     }}
 
     function renderList(rows) {{
@@ -1129,8 +1190,8 @@ def build_html(data: list[dict[str, str]]) -> str:
 
     function selectedRow(rows) {{
       let row = auditData.find(item => item.id === state.selectedId);
-      if (!row || (rows.length && !rows.some(item => item.id === row.id))) {{
-        row = rows[0] || auditData[0];
+      if (!row || state.deletedIds.has(row.id) || (rows.length && !rows.some(item => item.id === row.id))) {{
+        row = rows[0] || activeRows()[0];
         state.selectedId = row?.id || null;
       }}
       return row;
@@ -1202,6 +1263,7 @@ def build_html(data: list[dict[str, str]]) -> str:
             <button class="action-btn fixed" type="button" data-action="fixed">Mark fixed</button>
             <button class="action-btn notfixed" type="button" data-action="notfixed">Mark not fixed</button>
             <button class="action-btn ghost" type="button" data-action="unreviewed">Reset status</button>
+            <button class="action-btn danger" type="button" data-delete-point>Delete point</button>
           </div>
         </div>
         ${{state.businessMode ? businessBody : technicalBody}}`;
@@ -1209,6 +1271,8 @@ def build_html(data: list[dict[str, str]]) -> str:
       els.detail.querySelectorAll("[data-action]").forEach(button => {{
         button.addEventListener("click", () => setProgress(row.id, button.dataset.action));
       }});
+      const deleteButton = els.detail.querySelector("[data-delete-point]");
+      if (deleteButton) deleteButton.addEventListener("click", () => deletePoint(row.id));
       const noteBox = document.getElementById("noteBox");
       if (noteBox) noteBox.addEventListener("input", event => setNote(row.id, event.target.value));
     }}
