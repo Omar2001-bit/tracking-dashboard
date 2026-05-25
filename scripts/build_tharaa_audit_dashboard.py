@@ -105,6 +105,124 @@ def value_for(values: tuple[object, ...], header_map: dict[str, int], *names: st
     return ""
 
 
+BUSINESS_GLOSSARY = [
+    (r"\bGA4\b", "analytics"),
+    (r"\bGoogle Analytics 4\b", "analytics"),
+    (r"\bGTM\b", "tracking manager"),
+    (r"\bGoogle Tag Manager\b", "tracking manager"),
+    (r"\bGoogle Search Console\b", "Google search performance tool"),
+    (r"\bGSC\b", "Google search performance tool"),
+    (r"\bMicrosoft Clarity\b", "customer behavior tool"),
+    (r"\bClarity\b", "customer behavior tool"),
+    (r"\bdataLayer\b", "tracking data layer"),
+    (r"\bkey event[s]?\b", "important business action"),
+    (r"\bconversion[s]?\b", "important business result"),
+    (r"\becommerce\b", "online store"),
+    (r"\battribution\b", "which marketing source gets credit"),
+    (r"\bSmart Bidding\b", "automated ad bidding"),
+    (r"\bparameter[s]?\b", "extra tracking details"),
+    (r"\bdimension[s]?\b", "reporting field"),
+    (r"\bmetric[s]?\b", "reporting number"),
+    (r"\bevents\b", "tracked actions"),
+    (r"\bevent\b", "tracked action"),
+    (r"\btag[s]?\b", "tracking code"),
+    (r"\btrigger[s]?\b", "rule that decides when tracking runs"),
+    (r"\bcontainer\b", "tracking workspace"),
+    (r"\bDebugView\b", "live testing screen"),
+    (r"\bTag Assistant\b", "Google tracking checker"),
+    (r"\bURL Inspection\b", "Google page check"),
+    (r"\bcanonical\b", "preferred page version"),
+    (r"\bindexing\b", "Google saving pages for search results"),
+    (r"\bcrawl(?:ing)?\b", "Google reading the site"),
+    (r"\bstructured data\b", "search-friendly page information"),
+    (r"\bconsent mode\b", "privacy consent setup"),
+    (r"\bCMP\b", "cookie/privacy banner"),
+    (r"\bPII\b", "personal customer information"),
+    (r"\bBigQuery\b", "raw data warehouse"),
+    (r"\bAPI\b", "system connection"),
+    (r"\bMCP\b", "system access tool"),
+    (r"\bSKU\b", "product code"),
+    (r"\bROAS\b", "ad return"),
+    (r"\bCPA\b", "cost per result"),
+    (r"\bCTR\b", "click rate"),
+    (r"\bCWV\b", "page speed and experience checks"),
+    (r"\bVAT\b", "sales tax"),
+    (r"\bPDPL\b", "privacy law"),
+]
+
+
+def strip_issue_prefix(text: str) -> str:
+    text = re.sub(r"^\[[^\]]+\]\s*", "", text).strip()
+    text = re.sub(r"^[A-Z0-9-]+\s*[—-]\s*", "", text).strip()
+    return text
+
+
+def plain_language(text: str) -> str:
+    text = clean(text)
+    text = re.sub(r"`([^`]+)`", r"\1", text)
+    text = text.replace("page_view", "page view").replace("session_start", "session start")
+    text = text.replace("itemCategory2", "product subcategory")
+    text = text.replace("itemCategory3", "product subcategory")
+    text = text.replace("itemCategory", "product category")
+    text = text.replace("itemListName", "product list name")
+    text = text.replace("itemListId", "product list ID")
+    text = text.replace("contentGroup", "page group")
+    text = text.replace("→", " to ").replace("≥", "at least ").replace("×", " times ")
+    text = text.replace("100%", "all")
+    for pattern, replacement in BUSINESS_GLOSSARY:
+        text = re.sub(pattern, replacement, text, flags=re.I)
+    text = re.sub(r"\ba analytics\b", "an analytics", text)
+    text = re.sub(r"\ban analytics important business action\b", "an important business action in analytics", text)
+    text = re.sub(r"\bmarked as an important business action in analytics\b", "being counted as a business success action", text)
+    text = re.sub(r"\bis an important business action in analytics\b", "is counted as a business success action", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def short_business_issue(issue: str, tool: str) -> str:
+    text = plain_language(strip_issue_prefix(issue))
+    text = re.sub(r"\s+", " ", text)
+    if len(text) > 180:
+        text = text[:177].rstrip() + "..."
+    return f"{tool}: {text}" if tool and not text.lower().startswith(tool.lower()) else text
+
+
+def business_detail(issue: str, detail: str, tool: str, review_status: str) -> str:
+    issue_text = plain_language(strip_issue_prefix(issue))
+    detail_text = plain_language(detail or issue)
+    status_text = plain_language(review_status)
+    parts = [
+        f"What this means:\n{issue_text}",
+        "Why the business should care:\nThis can affect the quality of decisions, reporting, marketing spend, customer experience, search visibility, or store operations. If the setup is wrong, the team may trust numbers or settings that do not reflect what customers are really doing.",
+        f"Current reading:\n{detail_text}",
+    ]
+    if status_text:
+        parts.append(f"How this item is routed:\n{status_text}")
+    return "\n\n".join(parts)
+
+
+def business_fix(fix: str, tool: str) -> str:
+    fix_text = plain_language(fix)
+    if not fix_text:
+        fix_text = "Confirm the current setup, decide the correct business outcome, make the change in the relevant platform, and save before/after proof."
+    return (
+        "What to do in business terms:\n"
+        f"{fix_text}\n\n"
+        "Keep it simple: confirm the problem is still true, fix the setting or tracking source, then record proof so the team can trust the result later."
+    )
+
+
+def business_verify(verify: str) -> str:
+    verify_text = plain_language(verify)
+    if not verify_text:
+        verify_text = "Open the relevant platform, check the final setting or report, and save evidence."
+    return (
+        "How to know it is fixed:\n"
+        f"{verify_text}\n\n"
+        "Do not mark this complete from memory. Mark it complete only after you see proof and save the evidence."
+    )
+
+
 def load_rows() -> list[dict[str, str]]:
     workbook = openpyxl.load_workbook(SOURCE, read_only=True, data_only=True)
     rows: list[dict[str, str]] = []
@@ -174,6 +292,10 @@ def load_rows() -> list[dict[str, str]]:
                     "owner": owner,
                     "qaOutcome": qa_outcome,
                     "evidenceLink": evidence_link,
+                    "businessIssue": short_business_issue(issue, tool),
+                    "businessDetail": business_detail(issue, detail, tool, review_status),
+                    "businessFix": business_fix(fix, tool),
+                    "businessVerify": business_verify(verify),
                 }
             )
     workbook.close()
@@ -369,6 +491,29 @@ def build_html(data: list[dict[str, str]]) -> str:
       margin-top: 7px;
       color: var(--muted);
       font-size: 12px;
+    }}
+    .mode-switch {{
+      display: inline-grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4px;
+      padding: 4px;
+      margin-bottom: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--c-light);
+    }}
+    .mode-btn {{
+      border: 0;
+      border-radius: 6px;
+      min-height: 34px;
+      padding: 0 12px;
+      background: transparent;
+      color: var(--muted);
+      font-weight: 700;
+    }}
+    .mode-btn.active {{
+      background: var(--c-dark);
+      color: var(--c-primary);
     }}
     .filters {{
       display: grid;
@@ -626,6 +771,10 @@ def build_html(data: list[dict[str, str]]) -> str:
           </div>
           <div class="completion-meta" id="completionMeta">0 of 0 tasks fixed</div>
         </div>
+        <div class="mode-switch" aria-label="Language mode">
+          <button class="mode-btn active" id="technicalMode" type="button">Technical</button>
+          <button class="mode-btn" id="businessMode" type="button">Business</button>
+        </div>
         <div class="filters">
           <input id="search" class="search" type="search" placeholder="Search audit points, IDs, fixes, docs">
           <select id="statusFilter" class="select" aria-label="Status filter">
@@ -697,6 +846,7 @@ def build_html(data: list[dict[str, str]]) -> str:
       status: "all",
       review: "all",
       sourceTab: "All",
+      businessMode: false,
       query: "",
       selectedId: auditData[0]?.id || null,
       progress: loadProgress(),
@@ -721,6 +871,8 @@ def build_html(data: list[dict[str, str]]) -> str:
       clearFilters: document.getElementById("clearFilters"),
       reviewFilter: document.getElementById("reviewFilter"),
       sourceFilter: document.getElementById("sourceFilter"),
+      technicalMode: document.getElementById("technicalMode"),
+      businessMode: document.getElementById("businessMode"),
       manualOnly: document.getElementById("manualOnly"),
     }};
 
@@ -855,6 +1007,27 @@ def build_html(data: list[dict[str, str]]) -> str:
       }}).join("");
     }}
 
+    function modeText(row, technicalField, businessField) {{
+      if (state.businessMode && row[businessField]) return row[businessField];
+      return row[technicalField] || "";
+    }}
+
+    function issueText(row) {{
+      return modeText(row, "issue", "businessIssue");
+    }}
+
+    function detailText(row) {{
+      return modeText(row, "detail", "businessDetail") || row.summary || "";
+    }}
+
+    function fixText(row) {{
+      return modeText(row, "fix", "businessFix") || "No fix steps were listed in the workbook.";
+    }}
+
+    function verifyText(row) {{
+      return modeText(row, "verify", "businessVerify") || "No verification steps were listed in the workbook.";
+    }}
+
     function filteredRows() {{
       const q = state.query.trim().toLowerCase();
       return auditData.filter(row => {{
@@ -867,6 +1040,7 @@ def build_html(data: list[dict[str, str]]) -> str:
         if (!q) return true;
         return [
           row.issue,
+          row.businessIssue,
           row.issueId,
           row.tool,
           row.sourceTab,
@@ -874,7 +1048,10 @@ def build_html(data: list[dict[str, str]]) -> str:
           row.reviewStatus,
           row.summary,
           row.fix,
+          row.businessFix,
           row.verify,
+          row.businessVerify,
+          row.businessDetail,
           row.docs,
         ].join("\\n").toLowerCase().includes(q);
       }});
@@ -932,7 +1109,7 @@ def build_html(data: list[dict[str, str]]) -> str:
         button.type = "button";
         button.className = `point${{row.id === state.selectedId ? " active" : ""}}`;
         button.innerHTML = `
-          <div class="point-title">${{escapeHtml(row.issue)}}</div>
+          <div class="point-title">${{escapeHtml(issueText(row))}}</div>
           <div class="meta">
             <span class="chip tool">${{escapeHtml(row.tool)}}</span>
             ${{row.issueId ? `<span class="chip">${{escapeHtml(row.issueId)}}</span>` : ""}}
@@ -967,7 +1144,7 @@ def build_html(data: list[dict[str, str]]) -> str:
       const progress = progressFor(row.id);
       els.detail.innerHTML = `
         <div class="detail-top">
-          <h2 class="detail-title">${{escapeHtml(row.issue)}}</h2>
+          <h2 class="detail-title">${{escapeHtml(issueText(row))}}</h2>
           <div class="meta">
             <span class="chip tool">${{escapeHtml(row.tool)}}</span>
             ${{row.issueId ? `<span class="chip">${{escapeHtml(row.issueId)}}</span>` : ""}}
@@ -985,15 +1162,15 @@ def build_html(data: list[dict[str, str]]) -> str:
         <div class="detail-body">
           <div class="section">
             <h2>How To Fix</h2>
-            <div class="content">${{escapeHtml(row.fix || "No fix steps were listed in the workbook.")}}</div>
+            <div class="content">${{escapeHtml(fixText(row))}}</div>
           </div>
           <div class="section">
             <h2>How To Verify</h2>
-            <div class="content">${{escapeHtml(row.verify || "No verification steps were listed in the workbook.")}}</div>
+            <div class="content">${{escapeHtml(verifyText(row))}}</div>
           </div>
           <div class="section">
-            <h2>Why It Matters</h2>
-            <div class="content">${{escapeHtml(row.detail || row.summary)}}</div>
+            <h2>${{state.businessMode ? "Plain Business Explanation" : "Why It Matters"}}</h2>
+            <div class="content">${{escapeHtml(detailText(row))}}</div>
           </div>
           <div class="section">
             <h2>Official Docs</h2>
@@ -1032,6 +1209,8 @@ def build_html(data: list[dict[str, str]]) -> str:
       const rows = filteredRows();
       renderCounts(rows.length);
       els.resultLabel.textContent = `${{rows.length.toLocaleString()}} audit point${{rows.length === 1 ? "" : "s"}} shown`;
+      els.technicalMode.classList.toggle("active", !state.businessMode);
+      els.businessMode.classList.toggle("active", state.businessMode);
       els.manualOnly.classList.toggle("active", state.review === "manual");
       els.manualOnly.textContent = state.review === "manual" ? "Showing manual review" : "Manual review only";
       renderList(rows);
@@ -1048,6 +1227,14 @@ def build_html(data: list[dict[str, str]]) -> str:
     }});
     els.reviewFilter.addEventListener("change", event => {{
       state.review = event.target.value;
+      render();
+    }});
+    els.technicalMode.addEventListener("click", () => {{
+      state.businessMode = false;
+      render();
+    }});
+    els.businessMode.addEventListener("click", () => {{
+      state.businessMode = true;
       render();
     }});
     els.sourceFilter.addEventListener("change", event => {{
