@@ -277,6 +277,50 @@ def build_html(data: list[dict[str, str]]) -> str:
       color: var(--muted);
       font-size: 12px;
     }}
+    .completion-panel {{
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 14px;
+      background: var(--c-white);
+    }}
+    .completion-head {{
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 8px;
+    }}
+    .completion-title {{
+      color: var(--c-text);
+      font-size: 13px;
+      font-weight: 700;
+    }}
+    .completion-percent {{
+      color: var(--c-dark);
+      font-size: 20px;
+      line-height: 1;
+      font-weight: 700;
+    }}
+    .completion-track {{
+      height: 12px;
+      border-radius: 999px;
+      overflow: hidden;
+      background: var(--c-light);
+      border: 1px solid var(--line);
+    }}
+    .completion-fill {{
+      width: 0%;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--c-primary), var(--c-accentDk));
+      transition: width .25s ease;
+    }}
+    .completion-meta {{
+      margin-top: 7px;
+      color: var(--muted);
+      font-size: 12px;
+    }}
     .filters {{
       display: grid;
       grid-template-columns: 1fr 170px 200px;
@@ -523,6 +567,16 @@ def build_html(data: list[dict[str, str]]) -> str:
           <div class="kpi"><strong id="notFixedCount">0</strong><span>Marked not fixed</span></div>
           <div class="kpi"><strong id="cloudStatus">Local</strong><span>Firestore sync</span></div>
         </div>
+        <div class="completion-panel" aria-label="Overall completion">
+          <div class="completion-head">
+            <span class="completion-title">Overall completion</span>
+            <strong class="completion-percent" id="completionPercent">0%</strong>
+          </div>
+          <div class="completion-track" role="progressbar" aria-label="Fixed audit point completion" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+            <div class="completion-fill" id="completionFill"></div>
+          </div>
+          <div class="completion-meta" id="completionMeta">0 of 0 tasks fixed</div>
+        </div>
         <div class="filters">
           <input id="search" class="search" type="search" placeholder="Search audit points, IDs, fixes, docs">
           <select id="statusFilter" class="select" aria-label="Status filter">
@@ -606,6 +660,9 @@ def build_html(data: list[dict[str, str]]) -> str:
       fixedCount: document.getElementById("fixedCount"),
       notFixedCount: document.getElementById("notFixedCount"),
       cloudStatus: document.getElementById("cloudStatus"),
+      completionPercent: document.getElementById("completionPercent"),
+      completionFill: document.getElementById("completionFill"),
+      completionMeta: document.getElementById("completionMeta"),
       resultLabel: document.getElementById("resultLabel"),
       clearFilters: document.getElementById("clearFilters"),
       reviewFilter: document.getElementById("reviewFilter"),
@@ -783,6 +840,12 @@ def build_html(data: list[dict[str, str]]) -> str:
       els.manualCount.textContent = manual.toLocaleString();
       els.fixedCount.textContent = fixed.toLocaleString();
       els.notFixedCount.textContent = notFixed.toLocaleString();
+      const completion = auditData.length ? (fixed / auditData.length) * 100 : 0;
+      const completionText = `${{completion.toFixed(1).replace(".0", "")}}%`;
+      els.completionPercent.textContent = completionText;
+      els.completionFill.style.width = `${{Math.min(100, completion).toFixed(2)}}%`;
+      els.completionFill.parentElement.setAttribute("aria-valuenow", completion.toFixed(1));
+      els.completionMeta.textContent = `${{fixed.toLocaleString()}} of ${{auditData.length.toLocaleString()}} tasks fixed`;
     }}
 
     function renderList(rows) {{
