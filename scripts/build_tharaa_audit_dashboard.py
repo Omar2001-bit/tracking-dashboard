@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE = Path(
     os.environ.get(
         "THARAA_AUDIT_WORKBOOK",
-        r"C:\Users\Omar Maged\Downloads\tharaa_audit_command_center_with_behavioral_tool.xlsx",
+        r"C:\Users\Omar Maged\Downloads\Dashboard data sheet.xlsx",
     )
 )
 OUTPUT = ROOT / "index.html"
@@ -82,43 +82,84 @@ def summarize(text: str, limit: int = 220) -> str:
     return collapsed[: limit - 1].rstrip() + "..."
 
 
+def slug(value: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9]+", "-", value).strip("-")
+    return cleaned or "row"
+
+
+def find_header(rows: list[tuple[int, tuple[object, ...]]]) -> tuple[int, dict[str, int]] | None:
+    for position, (_excel_row, values) in enumerate(rows[:30]):
+        names = [clean(value) for value in values]
+        if "Issue Name" in names and ("Tab" in names or "Original Row" in names):
+            return position, {name: index for index, name in enumerate(names) if name}
+    return None
+
+
+def value_for(values: tuple[object, ...], header_map: dict[str, int], *names: str) -> str:
+    for name in names:
+        index = header_map.get(name)
+        if index is not None and index < len(values):
+            value = clean(values[index])
+            if value:
+                return value
+    return ""
+
+
 def load_rows() -> list[dict[str, str]]:
     workbook = openpyxl.load_workbook(SOURCE, read_only=True, data_only=True)
     rows: list[dict[str, str]] = []
     for ws in workbook.worksheets:
-        sheet_rows = ws.iter_rows(values_only=True)
-        header = next(sheet_rows, None)
-        if not header:
+        if ws.title in {"Cleanup Log", "Official Docs"} or ws.title.startswith("_"):
             continue
-        header_map = {clean(name): index for index, name in enumerate(header) if clean(name)}
-        required = [
-            "Issue Name",
-            "Detailed Explanation / Why It Matters",
-            "How to Fix",
-            "How to Verify",
-            "Official Docs Used",
+
+        raw_rows = [
+            (index, tuple(values or ()))
+            for index, values in enumerate(ws.iter_rows(values_only=True), start=1)
+            if any(clean(value) for value in (values or ()))
         ]
-        if not all(name in header_map for name in required):
+        header_result = find_header(raw_rows)
+        if not header_result:
             continue
-        for row_index, values in enumerate(sheet_rows, start=2):
-            values = tuple(values or ())
-            issue = clean(values[header_map["Issue Name"]] if header_map["Issue Name"] < len(values) else "")
-            detail = clean(
-                values[header_map["Detailed Explanation / Why It Matters"]]
-                if header_map["Detailed Explanation / Why It Matters"] < len(values)
-                else ""
+
+        header_position, header_map = header_result
+        for row_index, values in raw_rows[header_position + 1 :]:
+            issue = value_for(values, header_map, "Issue Name")
+            tool = value_for(values, header_map, "Tab") or ws.title
+            original_row = value_for(values, header_map, "Original Row") or str(row_index)
+            review_status = value_for(values, header_map, "Review Status", "Backlog Category")
+            routing_note = value_for(values, header_map, "Reason / Routing Note")
+            owner = value_for(values, header_map, "Owner")
+            qa_outcome = value_for(values, header_map, "QA Outcome", "Decision")
+            evidence_link = value_for(values, header_map, "Evidence Link")
+            detail = value_for(
+                values,
+                header_map,
+                "Detailed Explanation / Why It Matters",
+                "QA Task / Verification Step",
+                "Recommended Next Step",
             )
-            fix = clean(values[header_map["How to Fix"]] if header_map["How to Fix"] < len(values) else "")
-            verify = clean(values[header_map["How to Verify"]] if header_map["How to Verify"] < len(values) else "")
-            docs = clean(values[header_map["Official Docs Used"]] if header_map["Official Docs Used"] < len(values) else "")
+            fix = value_for(
+                values,
+                header_map,
+                "Rewritten / Routed Fix",
+                "Recommended Next Step",
+                "QA Task / Verification Step",
+                "Original How to Fix",
+                "How to Fix",
+            )
+            verify = value_for(values, header_map, "How to Verify")
+            docs = value_for(values, header_map, "Official Docs Used", "Official Basis")
             if not any([issue, detail, fix, verify, docs]):
                 continue
             issue_id = extract_issue_id(issue)
+            row_key = slug(f"{ws.title}-{tool}-{original_row}-{issue_id or issue[:80]}")
             rows.append(
                 {
-                    "id": f"{ws.title}-{row_index}-{issue_id or len(rows) + 1}",
-                    "row": str(row_index),
-                    "tool": ws.title,
+                    "id": row_key,
+                    "row": original_row,
+                    "sourceRow": str(row_index),
+                    "sourceTab": ws.title,
+                    "tool": tool,
                     "issueId": issue_id,
                     "status": extract_status(issue, detail, fix),
                     "manualReview": requires_manual_review(issue, detail, fix, verify),
@@ -128,6 +169,11 @@ def load_rows() -> list[dict[str, str]]:
                     "fix": fix,
                     "verify": verify,
                     "docs": docs,
+                    "reviewStatus": review_status,
+                    "routingNote": routing_note,
+                    "owner": owner,
+                    "qaOutcome": qa_outcome,
+                    "evidenceLink": evidence_link,
                 }
             )
     workbook.close()
@@ -137,9 +183,12 @@ def load_rows() -> list[dict[str, str]]:
 def build_html(data: list[dict[str, str]]) -> str:
     payload = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
     counts = {}
+    tab_counts = {}
     for row in data:
         counts[row["tool"]] = counts.get(row["tool"], 0) + 1
+        tab_counts[row["sourceTab"]] = tab_counts.get(row["sourceTab"], 0) + 1
     tool_counts = json.dumps(counts, ensure_ascii=False)
+    source_counts = json.dumps(tab_counts, ensure_ascii=False)
 
     return f"""<!doctype html>
 <html lang="en">
@@ -323,7 +372,7 @@ def build_html(data: list[dict[str, str]]) -> str:
     }}
     .filters {{
       display: grid;
-      grid-template-columns: 1fr 170px 200px;
+      grid-template-columns: 1fr 170px 200px 220px;
       gap: 10px;
     }}
     .search, .select {{
@@ -590,6 +639,9 @@ def build_html(data: list[dict[str, str]]) -> str:
             <option value="manual">Manual review needed</option>
             <option value="nonmanual">No manual review flag</option>
           </select>
+          <select id="sourceFilter" class="select" aria-label="Source tab filter">
+            <option value="All">All workbook tabs</option>
+          </select>
         </div>
       </div>
       <nav class="toolbar" id="toolbar" aria-label="Tool filter"></nav>
@@ -634,6 +686,7 @@ def build_html(data: list[dict[str, str]]) -> str:
 
     const auditData = JSON.parse(document.getElementById("audit-data").textContent);
     const toolCounts = {tool_counts};
+    const sourceCounts = {source_counts};
     const storeKey = "tharaa-audit-command-center-progress-v1";
     const firebaseApp = initializeApp(firebaseConfig);
     const db = getFirestore(firebaseApp);
@@ -643,6 +696,7 @@ def build_html(data: list[dict[str, str]]) -> str:
       tool: "All",
       status: "all",
       review: "all",
+      sourceTab: "All",
       query: "",
       selectedId: auditData[0]?.id || null,
       progress: loadProgress(),
@@ -666,8 +720,20 @@ def build_html(data: list[dict[str, str]]) -> str:
       resultLabel: document.getElementById("resultLabel"),
       clearFilters: document.getElementById("clearFilters"),
       reviewFilter: document.getElementById("reviewFilter"),
+      sourceFilter: document.getElementById("sourceFilter"),
       manualOnly: document.getElementById("manualOnly"),
     }};
+
+    function populateSourceFilter() {{
+      const fragment = document.createDocumentFragment();
+      for (const [sourceTab, count] of Object.entries(sourceCounts)) {{
+        const option = document.createElement("option");
+        option.value = sourceTab;
+        option.textContent = `${{sourceTab}} (${{count.toLocaleString()}})`;
+        fragment.appendChild(option);
+      }}
+      els.sourceFilter.appendChild(fragment);
+    }}
 
     function loadProgress() {{
       try {{
@@ -715,6 +781,8 @@ def build_html(data: list[dict[str, str]]) -> str:
         tool: row.tool || "",
         issueId: row.issueId || "",
         auditStatus: row.status || "",
+        sourceTab: row.sourceTab || "",
+        sourceRow: row.sourceRow || "",
         issue: row.issue || "",
         manualReview: Boolean(row.manualReview),
         status: progress.status || "unreviewed",
@@ -792,6 +860,7 @@ def build_html(data: list[dict[str, str]]) -> str:
       return auditData.filter(row => {{
         const progress = progressFor(row.id);
         if (state.tool !== "All" && row.tool !== state.tool) return false;
+        if (state.sourceTab !== "All" && row.sourceTab !== state.sourceTab) return false;
         if (state.status !== "all" && progress.status !== state.status) return false;
         if (state.review === "manual" && !row.manualReview) return false;
         if (state.review === "nonmanual" && row.manualReview) return false;
@@ -800,7 +869,9 @@ def build_html(data: list[dict[str, str]]) -> str:
           row.issue,
           row.issueId,
           row.tool,
+          row.sourceTab,
           row.status,
+          row.reviewStatus,
           row.summary,
           row.fix,
           row.verify,
@@ -865,6 +936,7 @@ def build_html(data: list[dict[str, str]]) -> str:
           <div class="meta">
             <span class="chip tool">${{escapeHtml(row.tool)}}</span>
             ${{row.issueId ? `<span class="chip">${{escapeHtml(row.issueId)}}</span>` : ""}}
+            <span class="chip">${{escapeHtml(row.sourceTab)}}</span>
             ${{row.manualReview ? '<span class="chip manual">Manual review</span>' : ""}}
             <span class="chip ${{progress.status}}">${{statusLabel(progress.status)}}</span>
             <span class="chip">${{escapeHtml(row.status)}}</span>
@@ -899,6 +971,7 @@ def build_html(data: list[dict[str, str]]) -> str:
           <div class="meta">
             <span class="chip tool">${{escapeHtml(row.tool)}}</span>
             ${{row.issueId ? `<span class="chip">${{escapeHtml(row.issueId)}}</span>` : ""}}
+            <span class="chip">${{escapeHtml(row.sourceTab)}}</span>
             ${{row.manualReview ? '<span class="chip manual">Manual review required</span>' : ""}}
             <span class="chip">${{escapeHtml(row.status)}}</span>
             <span class="chip ${{progress.status}}">${{statusLabel(progress.status)}}</span>
@@ -925,6 +998,18 @@ def build_html(data: list[dict[str, str]]) -> str:
           <div class="section">
             <h2>Official Docs</h2>
             <div class="content docs">${{docsHtml(row.docs)}}</div>
+          </div>
+          <div class="section">
+            <h2>Routing Details</h2>
+            <div class="content">${{escapeHtml([
+              `Source tab: ${{row.sourceTab || "Not listed"}}`,
+              `Original row: ${{row.row || "Not listed"}}`,
+              row.reviewStatus ? `Review status: ${{row.reviewStatus}}` : "",
+              row.routingNote ? `Routing note: ${{row.routingNote}}` : "",
+              row.owner ? `Owner: ${{row.owner}}` : "",
+              row.qaOutcome ? `QA outcome: ${{row.qaOutcome}}` : "",
+              row.evidenceLink ? `Evidence link: ${{row.evidenceLink}}` : "",
+            ].filter(Boolean).join("\\n"))}}</div>
           </div>
           <div class="section">
             <h2>My Notes</h2>
@@ -965,6 +1050,10 @@ def build_html(data: list[dict[str, str]]) -> str:
       state.review = event.target.value;
       render();
     }});
+    els.sourceFilter.addEventListener("change", event => {{
+      state.sourceTab = event.target.value;
+      render();
+    }});
     els.manualOnly.addEventListener("click", () => {{
       state.review = state.review === "manual" ? "all" : "manual";
       els.reviewFilter.value = state.review;
@@ -974,13 +1063,16 @@ def build_html(data: list[dict[str, str]]) -> str:
       state.tool = "All";
       state.status = "all";
       state.review = "all";
+      state.sourceTab = "All";
       state.query = "";
       els.search.value = "";
       els.statusFilter.value = "all";
       els.reviewFilter.value = "all";
+      els.sourceFilter.value = "All";
       render();
     }});
 
+    populateSourceFilter();
     render();
     loadCloudProgress();
   </script>
