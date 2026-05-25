@@ -1142,23 +1142,14 @@ def build_html(data: list[dict[str, str]]) -> str:
         return;
       }}
       const progress = progressFor(row.id);
-      els.detail.innerHTML = `
-        <div class="detail-top">
-          <h2 class="detail-title">${{escapeHtml(issueText(row))}}</h2>
-          <div class="meta">
-            <span class="chip tool">${{escapeHtml(row.tool)}}</span>
-            ${{row.issueId ? `<span class="chip">${{escapeHtml(row.issueId)}}</span>` : ""}}
-            <span class="chip">${{escapeHtml(row.sourceTab)}}</span>
-            ${{row.manualReview ? '<span class="chip manual">Manual review required</span>' : ""}}
-            <span class="chip">${{escapeHtml(row.status)}}</span>
-            <span class="chip ${{progress.status}}">${{statusLabel(progress.status)}}</span>
+      const businessBody = `
+        <div class="detail-body">
+          <div class="section">
+            <h2>Plain Business Explanation</h2>
+            <div class="content">${{escapeHtml(detailText(row))}}</div>
           </div>
-          <div class="actions">
-            <button class="action-btn fixed" type="button" data-action="fixed">Mark fixed</button>
-            <button class="action-btn notfixed" type="button" data-action="notfixed">Mark not fixed</button>
-            <button class="action-btn ghost" type="button" data-action="unreviewed">Reset status</button>
-          </div>
-        </div>
+        </div>`;
+      const technicalBody = `
         <div class="detail-body">
           <div class="section">
             <h2>How To Fix</h2>
@@ -1169,7 +1160,7 @@ def build_html(data: list[dict[str, str]]) -> str:
             <div class="content">${{escapeHtml(verifyText(row))}}</div>
           </div>
           <div class="section">
-            <h2>${{state.businessMode ? "Plain Business Explanation" : "Why It Matters"}}</h2>
+            <h2>Why It Matters</h2>
             <div class="content">${{escapeHtml(detailText(row))}}</div>
           </div>
           <div class="section">
@@ -1196,12 +1187,30 @@ def build_html(data: list[dict[str, str]]) -> str:
             </div>
           </div>
         </div>`;
+      els.detail.innerHTML = `
+        <div class="detail-top">
+          <h2 class="detail-title">${{escapeHtml(issueText(row))}}</h2>
+          <div class="meta">
+            <span class="chip tool">${{escapeHtml(row.tool)}}</span>
+            ${{row.issueId ? `<span class="chip">${{escapeHtml(row.issueId)}}</span>` : ""}}
+            <span class="chip">${{escapeHtml(row.sourceTab)}}</span>
+            ${{row.manualReview ? '<span class="chip manual">Manual review required</span>' : ""}}
+            <span class="chip">${{escapeHtml(row.status)}}</span>
+            <span class="chip ${{progress.status}}">${{statusLabel(progress.status)}}</span>
+          </div>
+          <div class="actions">
+            <button class="action-btn fixed" type="button" data-action="fixed">Mark fixed</button>
+            <button class="action-btn notfixed" type="button" data-action="notfixed">Mark not fixed</button>
+            <button class="action-btn ghost" type="button" data-action="unreviewed">Reset status</button>
+          </div>
+        </div>
+        ${{state.businessMode ? businessBody : technicalBody}}`;
 
       els.detail.querySelectorAll("[data-action]").forEach(button => {{
         button.addEventListener("click", () => setProgress(row.id, button.dataset.action));
       }});
       const noteBox = document.getElementById("noteBox");
-      noteBox.addEventListener("input", event => setNote(row.id, event.target.value));
+      if (noteBox) noteBox.addEventListener("input", event => setNote(row.id, event.target.value));
     }}
 
     function render() {{
