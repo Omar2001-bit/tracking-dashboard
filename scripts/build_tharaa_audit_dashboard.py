@@ -1038,7 +1038,16 @@ def build_html(data: list[dict[str, str]]) -> str:
 
     function loadDeletedIds() {{
       try {{
-        return JSON.parse(localStorage.getItem(deletedStoreKey) || "[]");
+        const saved = JSON.parse(localStorage.getItem(deletedStoreKey) || "[]");
+        if (!Array.isArray(saved)) return [];
+        const knownIds = new Set(auditData.map(row => row.id));
+        const validIds = [...new Set(saved)].filter(id => knownIds.has(id));
+        if (validIds.length >= auditData.length) {{
+          console.warn("Deleted point list hid every audit point; resetting it.");
+          localStorage.removeItem(deletedStoreKey);
+          return [];
+        }}
+        return validIds;
       }} catch {{
         return [];
       }}
@@ -1115,7 +1124,7 @@ def build_html(data: list[dict[str, str]]) -> str:
         status: progress.status || "unreviewed",
         fixed: progress.status === "fixed",
         note: progress.note || "",
-        deleted: state.deletedIds.has(id) || Boolean(progress.deleted),
+        deleted: state.deletedIds.has(id) || progress.deleted === true,
         deletedAt: progress.deletedAt || "",
         updatedAtIso: progress.updatedAt || new Date().toISOString(),
         updatedAt: serverTimestamp(),
@@ -1146,13 +1155,22 @@ def build_html(data: list[dict[str, str]]) -> str:
           state.progress[item.id] = {{
             status: data.status || "unreviewed",
             note: data.note || "",
-            deleted: Boolean(data.deleted),
+            deleted: data.deleted === true,
             deletedAt: data.deletedAt || "",
             updatedAt: data.updatedAtIso || "",
           }};
-          if (data.deleted) state.deletedIds.add(item.id);
+          if (data.deleted === true) state.deletedIds.add(item.id);
         }});
-        saveDeletedIds();
+        if (state.deletedIds.size >= auditData.length) {{
+          console.warn("Cloud deleted flags hid every audit point; resetting local deleted state.");
+          state.deletedIds.clear();
+          for (const progress of Object.values(state.progress)) {{
+            if (progress.deleted === true) progress.deleted = false;
+          }}
+          localStorage.removeItem(deletedStoreKey);
+        }} else {{
+          saveDeletedIds();
+        }}
         saveLocalProgress();
         setCloudStatus(`${{snapshot.size}} loaded`);
         render();
