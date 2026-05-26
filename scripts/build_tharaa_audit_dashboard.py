@@ -361,16 +361,24 @@ def build_html(data: list[dict[str, str]]) -> str:
       --shadow: 0 14px 30px rgba(14, 28, 38, .08);
     }}
     * {{ box-sizing: border-box; }}
+    html {{
+      width: 100%;
+      -webkit-text-size-adjust: 100%;
+      text-size-adjust: 100%;
+    }}
     body {{
       margin: 0;
       font-family: Arial, Helvetica, sans-serif;
       color: var(--c-body);
       background: var(--bg);
       line-height: 1.6;
+      overflow-x: hidden;
     }}
     button, input, select, textarea {{ font: inherit; }}
     button {{ cursor: pointer; }}
     .app {{
+      width: 100%;
+      max-width: 100vw;
       min-height: calc(100vh - 86px);
       display: grid;
       grid-template-columns: minmax(360px, 42%) 1fr;
@@ -411,12 +419,14 @@ def build_html(data: list[dict[str, str]]) -> str:
       min-height: calc(100vh - 86px);
       display: flex;
       flex-direction: column;
+      min-width: 0;
     }}
     .right {{
       min-height: calc(100vh - 86px);
       display: flex;
       flex-direction: column;
       background: var(--c-white);
+      min-width: 0;
     }}
     .topbar {{
       padding: 18px 22px 14px;
@@ -740,18 +750,134 @@ def build_html(data: list[dict[str, str]]) -> str:
       color: var(--muted);
     }}
     @media (max-width: 980px) {{
-      .app {{ grid-template-columns: 1fr; }}
-      .left, .right {{ min-height: auto; }}
-      .right {{ border-top: 1px solid var(--line); }}
+      .app {{
+        display: block;
+        min-height: auto;
+      }}
+      .left, .right {{
+        width: 100%;
+        min-height: auto;
+      }}
+      .left {{ border-right: 0; }}
+      .right {{
+        border-top: 1px solid var(--line);
+        scroll-margin-top: 0;
+      }}
       .kpis {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+      .list {{
+        max-height: 56vh;
+        overflow: auto;
+        overscroll-behavior: contain;
+      }}
     }}
     @media (max-width: 560px) {{
+      .doc-header {{
+        padding: 10px 14px;
+        flex-wrap: wrap;
+        row-gap: 2px;
+      }}
+      .header-title {{ font-size: 12px; }}
+      .doc-footer {{
+        padding: 10px 14px;
+        text-align: left;
+      }}
       .topbar, .detail-top, .detail-body {{ padding-left: 14px; padding-right: 14px; }}
+      .topbar {{ padding-top: 14px; padding-bottom: 12px; }}
+      h1 {{
+        font-size: 22px;
+        margin-bottom: 10px;
+      }}
+      .brand-subtitle {{
+        margin-top: -4px;
+        font-size: 11px;
+      }}
+      .kpis {{
+        gap: 7px;
+        margin-bottom: 12px;
+      }}
+      .kpi {{ padding: 8px; }}
+      .kpi strong {{ font-size: 18px; }}
+      .kpi span {{
+        display: block;
+        font-size: 11px;
+        line-height: 1.25;
+      }}
+      .completion-panel {{
+        padding: 10px;
+        margin-bottom: 12px;
+      }}
+      .completion-title {{ font-size: 12px; }}
+      .completion-percent {{ font-size: 18px; }}
+      .mode-switch {{
+        display: grid;
+        width: 100%;
+      }}
+      .mode-btn {{ min-height: 40px; }}
       .toolbar, .list-head {{ padding-left: 14px; padding-right: 14px; }}
       .list-head {{ align-items: flex-start; gap: 10px; flex-direction: column; }}
       .list-actions {{ justify-content: flex-start; }}
       .filters {{ grid-template-columns: 1fr; }}
-      .detail-title {{ font-size: 19px; }}
+      .search, .select {{
+        min-height: 44px;
+        font-size: 16px;
+      }}
+      .toolbar {{
+        gap: 7px;
+        padding-top: 10px;
+        padding-bottom: 10px;
+      }}
+      .tool-btn {{
+        padding: 8px 9px;
+        font-size: 13px;
+      }}
+      .list {{
+        max-height: 48vh;
+        padding: 10px 12px 14px;
+      }}
+      .point {{
+        padding: 11px;
+        margin-bottom: 8px;
+      }}
+      .point-title {{ font-size: 13px; }}
+      .chip {{
+        max-width: 100%;
+        white-space: normal;
+        font-size: 11px;
+        line-height: 1.2;
+      }}
+      .detail-top {{
+        position: static;
+        padding-top: 14px;
+        padding-bottom: 14px;
+      }}
+      .detail-title {{ font-size: 18px; }}
+      .actions {{
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }}
+      .action-btn {{
+        width: 100%;
+        min-height: 44px;
+        padding: 0 10px;
+        font-size: 13px;
+      }}
+      .detail-body {{
+        padding-top: 14px;
+        padding-bottom: 28px;
+      }}
+      .section {{ margin-bottom: 14px; }}
+      .section h2 {{
+        padding: 11px 12px;
+        font-size: 11px;
+      }}
+      .section .content {{
+        padding: 12px;
+        font-size: 14px;
+        line-height: 1.5;
+      }}
+    }}
+    @media (max-width: 380px) {{
+      .actions {{ grid-template-columns: 1fr; }}
     }}
   </style>
 </head>
@@ -1083,6 +1209,17 @@ def build_html(data: list[dict[str, str]]) -> str:
       return modeText(row, "verify", "businessVerify") || "No verification steps were listed in the workbook.";
     }}
 
+    function isStackedLayout() {{
+      return window.matchMedia("(max-width: 980px)").matches;
+    }}
+
+    function jumpToDetailOnMobile() {{
+      if (!isStackedLayout()) return;
+      requestAnimationFrame(() => {{
+        document.querySelector(".right")?.scrollIntoView({{ behavior: "smooth", block: "start" }});
+      }});
+    }}
+
     function filteredRows() {{
       const q = state.query.trim().toLowerCase();
       return activeRows().filter(row => {{
@@ -1182,6 +1319,7 @@ def build_html(data: list[dict[str, str]]) -> str:
         button.addEventListener("click", () => {{
           state.selectedId = row.id;
           render();
+          jumpToDetailOnMobile();
         }});
         fragment.appendChild(button);
       }}
